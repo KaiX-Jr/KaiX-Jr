@@ -6,6 +6,12 @@
 
 ---
 
+### 🌐 Portfolio & Live Systems
+- 💼 **Personal Portfolio**: [swapnoneelmondal.vercel.app](https://swapnoneelmondal.vercel.app)
+- 🚀 **Scholar OS**: [scholardashboard.vercel.app](https://scholardashboard.vercel.app)
+
+---
+
 ### 🚀 Featured Project: [Scholar OS](https://scholardashboard.vercel.app)
 > **Cognitive Academic Operating System** for students: classroom blackboard vision digitization with Gemini 2.5 Flash, active recall quiz engine, 75% attendance bunk simulation, and real-time cloud persistence.
 
@@ -24,5 +30,5 @@
 ---
 
 ### 📬 Connect With Me
-- 🌐 Live Project: [scholardashboard.vercel.app](https://scholardashboard.vercel.app)
+- 🌐 Portfolio: [https://swapnoneelmondal.vercel.app](https://swapnoneelmondal.vercel.app)
 - 🐙 GitHub: [@KaiX-Jr](https://github.com/KaiX-Jr)
