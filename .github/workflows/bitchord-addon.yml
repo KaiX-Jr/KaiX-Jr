@@ -1,0 +1,26 @@
+name: Deploy BitChord Lossless Addon
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bitchord-addon/**'
+      - '.github/workflows/bitchord-addon.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bitchord-addon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Deploy temporary Cloudflare Worker
+        run: npx --yes wrangler@latest deploy --temporary
