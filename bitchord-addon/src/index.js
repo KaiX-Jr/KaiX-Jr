@@ -1,5 +1,5 @@
 const NAME = "BitChord Lossless";
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 
 // Public community TIDAL proxy instances. These are unofficial and can go down.
 const TIDAL_APIS = [
@@ -30,30 +30,39 @@ function textError(status, message) {
   return json({ error: message }, status);
 }
 
-async function fetchJson(url, init = {}, timeoutMs = 5000) {
+async function fetchResponse(url, init = {}, timeoutMs = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
+    return await fetch(url, {
       ...init,
       signal: controller.signal,
       headers: {
-        Accept: "application/json",
-        "User-Agent": "BitChord-Lossless/1.0",
+        "User-Agent": "BitChord-Lossless/1.0.1",
         ...(init.headers || {})
       }
     });
-    const text = await response.text();
-    let data = null;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      // Ignore malformed upstream payloads and let the caller try another mirror.
-    }
-    return { response, data };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchJson(url, init = {}, timeoutMs = 8000) {
+  const response = await fetchResponse(url, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.headers || {})
+    }
+  }, timeoutMs);
+  const text = await response.text();
+  let data = null;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Ignore malformed upstream payloads and let the caller try another mirror.
+  }
+  return { response, data, text };
 }
 
 async function fetchFromMirrors(path, init = {}) {
@@ -88,48 +97,103 @@ function normalizeTrack(item) {
     duration: Number.isFinite(Number(item.duration)) ? Number(item.duration) : null,
     artworkURL: artworkUrl(item.album?.cover),
     format: "flac",
+    audioQuality: "LOSSLESS",
     tidalId: String(item.id)
   };
 }
 
-function decodeBase64Json(value) {
+function decodeBase64Text(value) {
   const binary = atob(value);
   const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-  return JSON.parse(new TextDecoder().decode(bytes));
+  return new TextDecoder().decode(bytes);
 }
 
-async function resolveTidalStream(tidalId) {
-  const path = `/track/?id=${encodeURIComponent(tidalId)}&quality=HI_RES_LOSSLESS`;
-  const upstream = await fetchFromMirrors(path);
-  const data = upstream.data?.data;
-  if (!data) throw new Error("TIDAL did not return track data");
+function decodeManifestText(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const raw = value.trim();
 
-  let streamUrl = null;
-  const rawManifest = data.manifest;
-  if (rawManifest) {
-    try {
-      const manifest = decodeBase64Json(rawManifest);
-      const urls = Array.isArray(manifest.urls) ? manifest.urls : [];
-      if (typeof urls[0] === "string" && /^https?:\/\//.test(urls[0])) {
-        streamUrl = urls[0];
-      }
-    } catch {
-      // Some mirrors may return a different manifest representation.
+  // Some hifi-api versions return a base64-encoded BTS manifest.
+  try {
+    const decoded = decodeBase64Text(raw).trim();
+    if (decoded.startsWith("{") || decoded.startsWith("[") || decoded.startsWith("<")) {
+      return decoded;
     }
+  } catch {
+    // Not base64; use the raw value below.
   }
 
-  if (!streamUrl && typeof data.manifest === "string" && /^https?:\/\//.test(data.manifest)) {
-    streamUrl = data.manifest;
+  return raw;
+}
+
+function isHttpUrl(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+function chooseFlacUrl(urls) {
+  if (!Array.isArray(urls)) return null;
+  const candidates = urls.filter(isHttpUrl);
+  if (!candidates.length) return null;
+
+  // Prefer URLs that explicitly identify FLAC/lossless content.
+  const ranked = candidates.slice().sort((a, b) => {
+    const rank = url => {
+      const low = url.toLowerCase();
+      if (low.includes("flac")) return 0;
+      if (low.includes("lossless")) return 1;
+      if (low.includes("hi-res") || low.includes("hires")) return 2;
+      return 10;
+    };
+    return rank(a) - rank(b);
+  });
+
+  return ranked[0];
+}
+
+function flacUrlFromManifest(value) {
+  const text = decodeManifestText(value);
+  if (!text) return null;
+
+  // A DASH MPD is segmented transport, not a single-file FLAC URL.
+  if (/<MPD(?:\s|>)/i.test(text)) return null;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed?.urls)) {
+      return chooseFlacUrl(parsed.urls);
+    }
+    if (isHttpUrl(parsed?.url)) {
+      return parsed.url;
+    }
+  } catch {
+    // Fall through to a conservative URL scan for older API variants.
   }
 
-  if (!streamUrl) {
-    throw new Error("No playable lossless URL in TIDAL response");
-  }
+  const match = text.match(/https?:\/\/[^"'\s]+/i);
+  return match?.[0] || null;
+}
 
+function extractManifestUri(body) {
+  if (!body || typeof body !== "object") return null;
+  const candidates = [
+    body?.data?.data?.attributes?.uri,
+    body?.data?.attributes?.uri,
+    body?.attributes?.uri,
+    body?.uri
+  ];
+  return candidates.find(isHttpUrl) || null;
+}
+
+function losslessStream(url, data = {}) {
   return {
-    url: streamUrl,
+    url,
     format: "flac",
-    quality: data.audioQuality === "HI_RES_LOSSLESS" ? "hi-res lossless" : "lossless",
+    quality: data.bitDepth
+      ? `${data.bitDepth}-bit FLAC`
+      : "lossless FLAC",
+    streamQuality: data.audioQuality === "HI_RES_LOSSLESS"
+      ? "[TIDAL] HI_RES_LOSSLESS"
+      : "[TIDAL] LOSSLESS",
+    audioQuality: "LOSSLESS",
     codec: "flac",
     container: "flac",
     manifest: "none",
@@ -137,6 +201,81 @@ async function resolveTidalStream(tidalId) {
     bitDepth: Number(data.bitDepth) || null,
     provider: "tidal"
   };
+}
+
+async function resolveViaTrackManifests(tidalId, base) {
+  const path = `/trackManifests/?id=${encodeURIComponent(tidalId)}&quality=LOSSLESS&adaptive=false&formats=FLAC`;
+  const lookup = await fetchJson(base + path, {
+    headers: {
+      Accept: "application/json"
+    }
+  });
+
+  if (!lookup.response.ok || !lookup.data) return null;
+
+  const manifestUri = extractManifestUri(lookup.data);
+  if (!manifestUri) return null;
+
+  const manifestResponse = await fetchResponse(manifestUri, {
+    headers: {
+      Accept: "application/json, text/plain, */*"
+    }
+  });
+  if (!manifestResponse.ok) return null;
+
+  const manifestText = await manifestResponse.text();
+  const flacUrl = flacUrlFromManifest(manifestText);
+  if (!flacUrl) return null;
+
+  return losslessStream(flacUrl, lookup.data?.data || lookup.data);
+}
+
+async function resolveViaTrack(tidalId, base) {
+  // Older hifi-api builds expose /track directly. LOSSLESS is intentional:
+  // HI_RES_LOSSLESS may yield a DASH MPD rather than one directly-playable FLAC.
+  const path = `/track/?id=${encodeURIComponent(tidalId)}&quality=LOSSLESS&country=US`;
+  const upstream = await fetchJson(base + path);
+  if (!upstream.response.ok || !upstream.data) return null;
+
+  const root = upstream.data;
+  const data = root?.data && typeof root.data === "object" ? root.data : root;
+
+  const directUrl = [
+    data?.OriginalTrackUrl,
+    data?.originalTrackUrl,
+    data?.url
+  ].find(isHttpUrl);
+
+  if (directUrl) {
+    return losslessStream(directUrl, data);
+  }
+
+  const manifest = data?.manifest ?? root?.manifest;
+  const flacUrl = flacUrlFromManifest(manifest);
+  if (!flacUrl) return null;
+
+  return losslessStream(flacUrl, data);
+}
+
+async function resolveTidalStream(tidalId) {
+  let lastError = null;
+
+  for (const base of TIDAL_APIS) {
+    try {
+      // Newer hifi-api instances expose trackManifests and let us explicitly
+      // ask for FLAC, non-adaptive LOSSLESS audio.
+      const modern = await resolveViaTrackManifests(tidalId, base);
+      if (modern) return modern;
+
+      // Fall back to the older /track contract used by several mirrors.
+      const legacy = await resolveViaTrack(tidalId, base);
+      if (legacy) return legacy;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("No directly playable FLAC URL in TIDAL response");
 }
 
 async function handleSearch(query) {
@@ -167,11 +306,11 @@ async function handleStream(id) {
   try {
     const stream = await resolveTidalStream(tidalId);
     return json(stream, 200, {
-      // The URL is a signed CDN URL and should not be cached for long.
+      // Signed CDN URLs should never be cached by the Worker.
       "Cache-Control": "no-store"
     });
   } catch (error) {
-    return textError(502, `Lossless stream unavailable: ${error?.message || "unknown error"}`);
+    return textError(502, `Lossless FLAC stream unavailable: ${error?.message || "unknown error"}`);
   }
 }
 
@@ -202,12 +341,24 @@ export default {
       return handleSearch(url.searchParams.get("q") || "");
     }
 
+    // BitChord's addon protocol uses /stream/{id}. Also accept /stream?id=
+    // for compatibility with simple clients and manual testing.
     if (url.pathname.startsWith("/stream/")) {
       return handleStream(decodeURIComponent(url.pathname.slice("/stream/".length)));
     }
 
+    if (url.pathname === "/stream" && url.searchParams.has("id")) {
+      return handleStream(url.searchParams.get("id") || "");
+    }
+
     if (url.pathname === "/health") {
-      return json({ ok: true, service: NAME, version: VERSION, providers: TIDAL_APIS });
+      return json({
+        ok: true,
+        service: NAME,
+        version: VERSION,
+        mode: "direct-flac",
+        providers: TIDAL_APIS
+      });
     }
 
     return textError(404, "Not found");
