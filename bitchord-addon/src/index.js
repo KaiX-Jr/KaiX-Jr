@@ -1,308 +1,63 @@
 const NAME = "BitChord Lossless";
-const VERSION = "1.2.0";
+const VERSION = "1.2.2";
+const JAMENDO_API = "https://api.jamendo.com/v3.0";
+const CORS = {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET, OPTIONS","Access-Control-Allow-Headers":"*","Access-Control-Max-Age":"86400"};
 
-// Public community HiFi API mirrors. They are unofficial and can change or go offline.
-const TIDAL_APIS = [
-  "https://api.monochrome.tf",
-  "https://monochrome-api.samidy.com",
-  "https://hifi.geeked.wtf",
-  "https://wolf.qqdl.site",
-  "https://maus.qqdl.site",
-  "https://vogel.qqdl.site",
-  "https://katze.qqdl.site",
-  "https://hund.qqdl.site",
-  "https://tidal.kinoplus.online",
-  "https://eu-central.monochrome.tf",
-  "https://us-west.monochrome.tf",
-  "https://arran.monochrome.tf",
-  "https://triton.squid.wtf"
-];
+function json(data,status=200,extra={}){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json; charset=utf-8",...CORS,...extra}})}
+function error(status,message){return json({error:message},status)}
+async function fetchResponse(url,init={},timeout=9000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{return await fetch(url,{...init,signal:c.signal,headers:{"User-Agent":`BitChord-Lossless/${VERSION}`,...(init.headers||{})}})}finally{clearTimeout(t)}}
+async function fetchJson(url,init={},timeout=9000){const r=await fetchResponse(url,{...init,headers:{Accept:"application/json",...(init.headers||{})}},timeout),text=await r.text();let data=null;try{data=JSON.parse(text)}catch{}return{response:r,data,text}}
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "*",
-  "Access-Control-Max-Age": "86400"
-};
-
-function json(data, status = 200, extra = {}) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      ...CORS,
-      ...extra
-    }
-  });
-}
-
-function textError(status, message) {
-  return json({ error: message }, status);
-}
-
-async function fetchResponse(url, init = {}, timeoutMs = 9000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        "User-Agent": `BitChord-Lossless/${VERSION}`,
-        ...(init.headers || {})
-      }
-    });
-  } finally {
-    clearTimeout(timer);
+function md5(input){
+  const rol=(x,c)=>(x<<c)|(x>>>(32-c)),add=(x,y)=>{const x4=x&0x40000000,y4=y&0x40000000,x8=x&0x80000000,y8=y&0x80000000,r=(x&0x3fffffff)+(y&0x3fffffff);if(x4&y4)return r^0x80000000^x8^y8;if(x4|y4)return r&0x40000000?r^0xc0000000^x8^y8:r^0x40000000^x8^y8;return r^x8^y8};
+  const F=(x,y,z)=>(x&y)|(~x&z),G=(x,y,z)=>(x&z)|(y&~z),H=(x,y,z)=>x^y^z,I=(x,y,z)=>y^(x|~z);
+  const step=(fn,a,b,c,d,x,s,k)=>add(rol(add(a,add(add(fn(b,c,d),x),k)),s),b);
+  const bytes=new TextEncoder().encode(input),n=(((bytes.length+8)>>6)+1)*16,w=new Array(n).fill(0);for(let j=0;j<bytes.length;j++)w[j>>2]|=bytes[j]<<((j%4)*8);w[bytes.length>>2]|=0x80<<((bytes.length%4)*8);w[n-2]=bytes.length*8;
+  let a=0x67452301,b=0xefcdab89,c=0x98badcfe,d=0x10325476;
+  for(let k=0;k<n;k+=16){const A=a,B=b,C=c,D=d;
+    a=step(F,a,b,c,d,w[k],7,0xd76aa478);d=step(F,d,a,b,c,w[k+1],12,0xe8c7b756);c=step(F,c,d,a,b,w[k+2],17,0x242070db);b=step(F,b,c,d,a,w[k+3],22,0xc1bdcee);
+    a=step(F,a,b,c,d,w[k+4],7,0xf57c0faf);d=step(F,d,a,b,c,w[k+5],12,0x4787c62a);c=step(F,c,d,a,b,w[k+6],17,0xa8304613);b=step(F,b,c,d,a,w[k+7],22,0xfd469501);
+    a=step(F,a,b,c,d,w[k+8],7,0x698098d8);d=step(F,d,a,b,c,w[k+9],12,0x8b44f7af);c=step(F,c,d,a,b,w[k+10],17,0xffff5bb1);b=step(F,b,c,d,a,w[k+11],22,0x895cd7be);
+    a=step(F,a,b,c,d,w[k+12],7,0x6b901122);d=step(F,d,a,b,c,w[k+13],12,0xfd987193);c=step(F,c,d,a,b,w[k+14],17,0xa679438e);b=step(F,b,c,d,a,w[k+15],22,0x49b40821);
+    a=step(G,a,b,c,d,w[k+1],5,0xf61e2562);d=step(G,d,a,b,c,w[k+6],9,0xc040b340);c=step(G,c,d,a,b,w[k+11],14,0x265e5a51);b=step(G,b,c,d,a,w[k],20,0xe9b6c7aa);
+    a=step(G,a,b,c,d,w[k+5],5,0xd62f105d);d=step(G,d,a,b,c,w[k+10],9,0x02441453);c=step(G,c,d,a,b,w[k+15],14,0xd8a1e681);b=step(G,b,c,d,a,w[k+4],20,0xe7d3fbc8);
+    a=step(G,a,b,c,d,w[k+9],5,0x21e1cde6);d=step(G,d,a,b,c,w[k+14],9,0xc33707d6);c=step(G,c,d,a,b,w[k+3],14,0xf4d50d87);b=step(G,b,c,d,a,w[k+8],20,0x455a14ed);
+    a=step(G,a,b,c,d,w[k+13],5,0xa9e3e905);d=step(G,d,a,b,c,w[k+2],9,0xfcefa3f8);c=step(G,c,d,a,b,w[k+7],14,0x676f02d9);b=step(G,b,c,d,a,w[k+12],20,0x8d2a4c8a);
+    a=step(H,a,b,c,d,w[k+5],4,0xfffa3942);d=step(H,d,a,b,c,w[k+8],11,0x8771f681);c=step(H,c,d,a,b,w[k+11],16,0x6d9d6122);b=step(H,b,c,d,a,w[k+14],23,0xfde5380c);
+    a=step(H,a,b,c,d,w[k+1],4,0xa4beea44);d=step(H,d,a,b,c,w[k+4],11,0x4bdecfa9);c=step(H,c,d,a,b,w[k+7],16,0xf6bb4b60);b=step(H,b,c,d,a,w[k+10],23,0xbebfbc70);
+    a=step(H,a,b,c,d,w[k+13],4,0x289b7ec6);d=step(H,d,a,b,c,w[k],11,0xeaa127fa);c=step(H,c,d,a,b,w[k+3],16,0xd4ef3085);b=step(H,b,c,d,a,w[k+6],23,0x04881d05);
+    a=step(H,a,b,c,d,w[k+9],4,0xd9d4d039);d=step(H,d,a,b,c,w[k+12],11,0xe6db99e5);c=step(H,c,d,a,b,w[k+15],16,0x1fa27cf8);b=step(H,b,c,d,a,w[k+2],23,0xc4ac5665);
+    a=step(I,a,b,c,d,w[k],6,0xf4292244);d=step(I,d,a,b,c,w[k+7],10,0x432aff97);c=step(I,c,d,a,b,w[k+14],15,0xab9423a7);b=step(I,b,c,d,a,w[k+5],21,0xfc93a039);
+    a=step(I,a,b,c,d,w[k+12],6,0x655b59c3);d=step(I,d,a,b,c,w[k+3],10,0x8f0ccc92);c=step(I,c,d,a,b,w[k+10],15,0xffeff47d);b=step(I,b,c,d,a,w[k+1],21,0x85845dd1);
+    a=step(I,a,b,c,d,w[k+8],6,0x6fa87e4f);d=step(I,d,a,b,c,w[k+15],10,0xfe2ce6e0);c=step(I,c,d,a,b,w[k+6],15,0xa3014314);b=step(I,b,c,d,a,w[k+13],21,0x4e0811a1);
+    a=step(I,a,b,c,d,w[k+4],6,0xf7537e82);d=step(I,d,a,b,c,w[k+11],10,0xbd3af235);c=step(I,c,d,a,b,w[k+2],15,0x2ad7d2bb);b=step(I,b,c,d,a,w[k+9],21,0xeb86d391);
+    a=add(a,A);b=add(b,B);c=add(c,C);d=add(d,D);
   }
+  const hex=x=>Array.from({length:4},(_,j)=>((x>>>(j*8))&255).toString(16).padStart(2,"0")).join("");return hex(a)+hex(b)+hex(c)+hex(d);
 }
+function randomSalt(n=12){const b=new Uint8Array(n);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,"0")).join("").slice(0,n)}
 
-async function fetchJson(url, init = {}, timeoutMs = 9000) {
-  const response = await fetchResponse(url, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(init.headers || {})
-    }
-  }, timeoutMs);
-  const text = await response.text();
-  let data = null;
-  try { data = JSON.parse(text); } catch {}
-  return { response, data, text };
-}
+function loadBackends(env){const out=[];const add=(e)=>{if(e?.baseUrl&&e?.username&&e?.password)out.push({type:e.type||"subsonic",baseUrl:String(e.baseUrl).replace(/\/+$/,""),username:String(e.username),password:String(e.password)})};if(env.MUSIC_BACKENDS){try{const v=JSON.parse(env.MUSIC_BACKENDS);if(Array.isArray(v))v.forEach(add)}catch{}}if(!out.length&&env.SUBSONIC_BASE_URL&&env.SUBSONIC_USERNAME&&env.SUBSONIC_PASSWORD)add({baseUrl:env.SUBSONIC_BASE_URL,username:env.SUBSONIC_USERNAME,password:env.SUBSONIC_PASSWORD});return out}
+const SUBSONIC_CLIENT="BitChordWorker",SUBSONIC_API_VERSION="1.16.1";
+function subsonicUrl(b,path,extra={}){const s=randomSalt(),u=new URL(b.baseUrl+path);const p={u:b.username,t:md5(b.password+s),s,v:SUBSONIC_API_VERSION,c:SUBSONIC_CLIENT,f:"json",...extra};for(const[k,v]of Object.entries(p))if(v!=null)u.searchParams.set(k,String(v));return u.toString()}
+function isFlacSong(s){return String(s?.suffix||"").toLowerCase()==="flac"||String(s?.contentType||"").toLowerCase()==="audio/flac"}
+function normalizeSubsonicSong(b,s){const flac=isFlacSong(s);return{id:`subsonic:${s.id}`,title:s.title||"Unknown Title",artist:s.artist||"Unknown Artist",album:s.album||"",duration:Number(s.duration)||null,artworkURL:s.coverArt?subsonicUrl(b,"/rest/getCoverArt.view",{id:s.coverArt,size:640}):null,format:flac?"flac":String(s.suffix||"unknown"),audioQuality:flac?"LOSSLESS":"LOSSY",backendId:String(s.id),sampleRate:s.samplingRate?Number(s.samplingRate):null,bitDepth:s.bitDepth?Number(s.bitDepth):null}}
+async function searchBackend(b,q){const {response,data}=await fetchJson(subsonicUrl(b,"/rest/search3.view",{query:q,songCount:25}));if(!response.ok||!data)return null;const root=data["subsonic-response"];if(root?.status!=="ok")return null;return Array.isArray(root.searchResult3?.song)?root.searchResult3.song.map(s=>normalizeSubsonicSong(b,s)):[]}
+async function fetchSongMeta(b,id){const {response,data}=await fetchJson(subsonicUrl(b,"/rest/getSong.view",{id}));if(!response.ok||!data)return null;const root=data["subsonic-response"];return root?.status==="ok"?root.song||null:null}
+async function resolveSubsonic(b,id){const s=await fetchSongMeta(b,id);if(!s||!isFlacSong(s))return null;return{url:subsonicUrl(b,"/rest/stream.view",{id,format:"raw"}),format:"flac",quality:s.bitDepth?`${s.bitDepth}-bit FLAC`:"FLAC",streamQuality:"LOSSLESS",audioQuality:"LOSSLESS",codec:"flac",container:"flac",manifest:"none",mimeType:"audio/flac",sampleRate:s.samplingRate?Number(s.samplingRate):null,bitDepth:s.bitDepth?Number(s.bitDepth):null,provider:b.type}}
 
-async function fetchText(url, init = {}, timeoutMs = 9000) {
-  const response = await fetchResponse(url, init, timeoutMs);
-  return { response, text: await response.text() };
-}
+function jamendoClientId(env){const v=env?.JAMENDO_CLIENT_ID;return typeof v==="string"&&v.trim()?v.trim():null}
+function jamendoUrl(path,env,extra={}){const c=jamendoClientId(env);if(!c)return null;const u=new URL(JAMENDO_API+path);u.searchParams.set("client_id",c);for(const[k,v]of Object.entries(extra))if(v!=null&&v!=="")u.searchParams.set(k,String(v));return u.toString()}
+function jamendoAllowed(t){return (t?.audiodownload_allowed??t?.track_audiodownload_allowed)!==false}
+function isFlacUrl(v){return typeof v==="string"&&/^https?:\/\//i.test(v)&&/\.flac(?:[?#]|$)/i.test(v)}
+function normalizeJamendoTrack(t){return{id:`jamendo:${t.id}`,title:t.name||"Unknown Title",artist:t.artist_name||"Unknown Artist",album:t.album_name||"",duration:Number(t.duration)||null,artworkURL:t.album_image||t.image||null,format:"flac",audioQuality:"LOSSLESS",provider:"jamendo",jamendoId:String(t.id),license:t.license_ccurl||null,streamable:Boolean(t.audio)&&isFlacUrl(t.audio)&&jamendoAllowed(t)}}
+async function searchJamendo(env,q){const u=jamendoUrl("/tracks/",env,{format:"json",namesearch:q,audioformat:"flac",audiodlformat:"flac",limit:20,imagesize:600});if(!u)return null;const {response,data}=await fetchJson(u);if(!response.ok||data?.headers?.status!=="success")return null;return(Array.isArray(data.results)?data.results:[]).filter(t=>t?.id&&jamendoAllowed(t)&&isFlacUrl(t.audio)).map(normalizeJamendoTrack).filter(t=>t.streamable)}
+async function fetchJamendoTrack(env,id){const u=jamendoUrl("/tracks/",env,{format:"json",id,audioformat:"flac",audiodlformat:"flac",imagesize:600});if(!u)return null;const {response,data}=await fetchJson(u);if(!response.ok||data?.headers?.status!=="success")return null;return data.results?.[0]||null}
+async function resolveJamendo(env,id){const t=await fetchJamendoTrack(env,id);if(!t||!jamendoAllowed(t)||typeof t.audio!=="string"||!/^https?:\/\//i.test(t.audio))return null;let url=t.audio;if(!isFlacUrl(url)){const u=jamendoUrl("/tracks/file/",env,{id,audioformat:"flac",action:"stream"});if(!u)return null;const r=await fetchResponse(u,{redirect:"follow"});if(!r.ok||!r.url)return null;url=r.url}if(!isFlacUrl(url)){const r=await fetchResponse(url,{method:"HEAD"});const ct=String(r.headers.get("content-type")||"").toLowerCase();if(!r.ok||!ct.includes("audio/flac"))return null}return{url,format:"flac",quality:t.bit_depth?`${t.bit_depth}-bit FLAC`:"FLAC",streamQuality:"[Jamendo] LOSSLESS",audioQuality:"LOSSLESS",codec:"flac",container:"flac",manifest:"none",mimeType:"audio/flac",sampleRate:Number(t.sampling_rate||t.samplerate)||null,bitDepth:Number(t.bit_depth||t.bitdepth)||null,provider:"jamendo",license:t.license_ccurl||null}}
 
-function artworkUrl(cover) {
-  if (!cover) return null;
-  const clean = String(cover).replace(/-/g, "/");
-  return `https://resources.tidal.com/images/${clean}/640x640.jpg`;
-}
+async function resolveStream(backends,env,composite){const i=composite.indexOf(":"),provider=i<0?"subsonic":composite.slice(0,i).toLowerCase(),id=i<0?composite:composite.slice(i+1);if(provider==="jamendo"){if(!jamendoClientId(env))throw new Error("Jamendo is not configured");if(!/^\d+$/.test(id))throw new Error("Invalid Jamendo track id");const r=await resolveJamendo(env,id);if(r)return r;throw new Error("No playable FLAC source was returned by Jamendo")}let last=null;for(const b of backends)try{if(b.type==="subsonic"){const r=await resolveSubsonic(b,id);if(r)return r}}catch(e){last=e}throw last||new Error("No configured backend returned a genuine FLAC source")}
+async function search(backends,env,q){if(!q.trim())return[];const out=[],seen=new Set();if(jamendoClientId(env))try{const r=await searchJamendo(env,q);for(const t of r||[])if(!seen.has(t.id)){seen.add(t.id);out.push(t)}}catch{}for(const b of backends)try{const r=await searchBackend(b,q);for(const t of r||[])if(!seen.has(t.id)){seen.add(t.id);out.push(t)}}catch{}return out.slice(0,50)}
 
-function normalizeTrack(item) {
-  const artist = item.artist?.name || item.artists?.[0]?.name || "Unknown Artist";
-  return {
-    id: `tidal:${item.id}`,
-    title: item.title || "Unknown Title",
-    artist,
-    album: item.album?.title || "",
-    duration: Number.isFinite(Number(item.duration)) ? Number(item.duration) : null,
-    artworkURL: artworkUrl(item.album?.cover),
-    format: "flac",
-    audioQuality: "LOSSLESS",
-    tidalId: String(item.id),
-    isrc: item.isrc || null
-  };
-}
+export default{async fetch(request,env={}){const u=new URL(request.url);if(request.method==="OPTIONS")return new Response(null,{status:204,headers:CORS});if(request.method!=="GET")return error(405,"Method not allowed");const backends=loadBackends(env),configured=backends.length>0||Boolean(jamendoClientId(env));if(u.pathname==="/"||u.pathname==="/manifest.json")return json({id:"com.kai.jr.bitchord.lossless",name:NAME,version:VERSION,description:"Lossless FLAC source for BitChord using authorized self-hosted Subsonic/Navidrome backends and the official Jamendo API.",author:"KaiX-Jr",resources:["search","stream"],configured,providers:{subsonic:backends.map(b=>({type:b.type,baseUrl:b.baseUrl})),jamendo:{configured:Boolean(jamendoClientId(env))}}});if(u.pathname==="/search"){if(!configured)return error(503,"No music backend configured");try{return json({tracks:await search(backends,env,u.searchParams.get("q")||"")})}catch(e){return error(502,`Search upstream unavailable: ${e?.message||"unknown error"}`)}}let id=null;if(u.pathname.startsWith("/stream/"))id=decodeURIComponent(u.pathname.slice(8));else if(u.pathname==="/stream"&&u.searchParams.has("id"))id=u.searchParams.get("id");if(id!==null){id=String(id||"").trim();if(!id||id.length>200||/\s/.test(id))return error(400,"Invalid stream id");if(!configured)return error(503,"No music backend configured");try{return json(await resolveStream(backends,env,id),200,{"Cache-Control":"no-store"})}catch(e){return error(502,`Lossless FLAC stream unavailable: ${e?.message||"unknown error"}`)}}if(u.pathname==="/health")return json({ok:configured,service:NAME,version:VERSION,mode:"multi-provider",quality:"LOSSLESS",providers:{subsonic:backends.map(b=>({type:b.type,baseUrl:b.baseUrl})),jamendo:{configured:Boolean(jamendoClientId(env))}}});return error(404,"Not found")}}
 
-function decodeBase64Text(value) {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  try {
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return null;
-  }
-}
-
-function decodeManifestText(value) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  const raw = value.trim();
-  const decoded = decodeBase64Text(raw);
-  if (decoded) {
-    const clean = decoded.trim();
-    if (clean.startsWith("{") || clean.startsWith("[") || clean.startsWith("<")) return clean;
-  }
-  return raw;
-}
-
-function isHttpUrl(value) {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
-}
-
-function looksLikeFlacUrl(value) {
-  if (!isHttpUrl(value)) return false;
-  const low = value.toLowerCase();
-  return low.includes(".flac") || low.includes("/flac/") || low.includes("format=flac");
-}
-
-function flacUrlFromManifest(value) {
-  const text = decodeManifestText(value);
-  if (!text || /<MPD(?:\s|>)/i.test(text)) return null;
-
-  try {
-    const parsed = JSON.parse(text);
-    const mimeType = String(parsed?.mimeType || parsed?.MimeType || "").toLowerCase();
-    const codecs = String(parsed?.codecs || parsed?.codec || "").toLowerCase();
-    const saysFlac = mimeType === "audio/flac" || codecs.includes("flac");
-
-    if (Array.isArray(parsed?.urls) && saysFlac) {
-      const urls = parsed.urls.filter(isHttpUrl);
-      return urls.find(looksLikeFlacUrl) || urls[0] || null;
-    }
-
-    if (isHttpUrl(parsed?.url) && (saysFlac || looksLikeFlacUrl(parsed.url))) return parsed.url;
-  } catch {}
-
-  const direct = text.match(/https?:\/\/[^\s"']+\.flac(?:\?[^\s"']+)?/i);
-  return direct?.[0] || null;
-}
-
-function losslessStream(url, data = {}) {
-  return {
-    url,
-    format: "flac",
-    quality: data.bitDepth ? `${data.bitDepth}-bit FLAC` : "16-bit FLAC",
-    streamQuality: "[TIDAL] LOSSLESS",
-    audioQuality: "LOSSLESS",
-    codec: "flac",
-    container: "flac",
-    manifest: "none",
-    sampleRate: Number(data.sampleRate) || 44100,
-    bitDepth: Number(data.bitDepth) || 16,
-    provider: "tidal"
-  };
-}
-
-async function resolveViaTrack(tidalId, base) {
-  const upstream = await fetchJson(`${base}/track/?id=${encodeURIComponent(tidalId)}&quality=LOSSLESS`);
-  if (!upstream.response.ok || !upstream.data) return null;
-
-  const root = upstream.data;
-  const data = root?.data && typeof root.data === "object" ? root.data : root;
-  const audioQuality = String(data?.audioQuality || "").toUpperCase();
-  if (audioQuality && audioQuality !== "LOSSLESS") return null;
-
-  const manifestMime = String(data?.manifestMimeType || "").toLowerCase();
-  if (manifestMime && manifestMime !== "application/vnd.tidal.bts") return null;
-
-  const url = flacUrlFromManifest(data?.manifest ?? root?.manifest);
-  return url ? losslessStream(url, data) : null;
-}
-
-async function resolveViaTrackManifests(tidalId, base) {
-  // Newer mirrors expose /trackManifests. We only accept the returned resource
-  // if it ultimately resolves to a single FLAC URL. DASH MPDs are rejected.
-  const lookup = await fetchJson(
-    `${base}/trackManifests/?id=${encodeURIComponent(tidalId)}&adaptive=false&formats=FLAC&usage=PLAYBACK&manifestType=MPEG_DASH&uriScheme=HTTPS`
-  );
-  if (!lookup.response.ok || !lookup.data) return null;
-
-  const uri = lookup.data?.data?.data?.attributes?.uri || lookup.data?.data?.attributes?.uri;
-  if (!isHttpUrl(uri)) return null;
-
-  const manifest = await fetchText(uri);
-  if (!manifest.response.ok) return null;
-
-  const url = flacUrlFromManifest(manifest.text);
-  if (!url) return null;
-
-  return losslessStream(url, lookup.data?.data?.data?.attributes || {});
-}
-
-async function resolveTidalStream(tidalId) {
-  let lastError = null;
-
-  for (const base of TIDAL_APIS) {
-    try {
-      // Prefer the simple BTS endpoint because it directly returns a single FLAC.
-      const direct = await resolveViaTrack(tidalId, base);
-      if (direct) return direct;
-
-      // Fall back to newer mirror implementations when /track/ is unavailable.
-      const manifest = await resolveViaTrackManifests(tidalId, base);
-      if (manifest) return manifest;
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error("No directly playable LOSSLESS FLAC URL was returned by any mirror");
-}
-
-async function searchFromBase(base, query) {
-  const result = await fetchJson(`${base}/search/?s=${encodeURIComponent(query)}&limit=20`);
-  if (!result.response.ok || !result.data) return null;
-  return result.data;
-}
-
-async function handleSearch(query) {
-  if (!query.trim()) return json({ tracks: [] });
-  let lastError = null;
-
-  for (const base of TIDAL_APIS) {
-    try {
-      const data = await searchFromBase(base, query);
-      const items = data?.data?.items;
-      if (!Array.isArray(items)) continue;
-      const tracks = items
-        .filter(item => item && item.id && item.title)
-        .map(normalizeTrack)
-        .filter(track => track.duration == null || track.duration > 0);
-      return json({ tracks });
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  return textError(502, `Search upstream unavailable: ${lastError?.message || "unknown error"}`);
-}
-
-async function handleStream(id) {
-  const tidalId = String(id).replace(/^tidal:/i, "").trim();
-  if (!/^\d+$/.test(tidalId)) return textError(400, "Invalid TIDAL track id");
-
-  try {
-    const stream = await resolveTidalStream(tidalId);
-    return json(stream, 200, { "Cache-Control": "no-store" });
-  } catch (error) {
-    return textError(502, `Lossless FLAC stream unavailable: ${error?.message || "unknown error"}`);
-  }
-}
-
-const worker = {
-  async fetch(request) {
-    const url = new URL(request.url);
-
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-    if (request.method !== "GET") return textError(405, "Method not allowed");
-
-    if (url.pathname === "/" || url.pathname === "/manifest.json") {
-      return json({
-        id: "com.kai.jr.bitchord.lossless",
-        name: NAME,
-        version: VERSION,
-        description: "Lossless FLAC source for BitChord using public community TIDAL APIs with mirror failover.",
-        author: "KaiX-Jr",
-        resources: ["search", "stream"]
-      });
-    }
-
-    if (url.pathname === "/search") return handleSearch(url.searchParams.get("q") || "");
-    if (url.pathname.startsWith("/stream/")) return handleStream(decodeURIComponent(url.pathname.slice("/stream/".length)));
-    if (url.pathname === "/stream" && url.searchParams.has("id")) return handleStream(url.searchParams.get("id") || "");
-
-    if (url.pathname === "/health") {
-      return json({
-        ok: true,
-        service: NAME,
-        version: VERSION,
-        mode: "direct-flac",
-        quality: "LOSSLESS",
-        resolver: ["track", "trackManifests"],
-        providers: TIDAL_APIS
-      });
-    }
-
-    return textError(404, "Not found");
-  }
-};
-
-export const __test = { decodeManifestText, flacUrlFromManifest, normalizeTrack };
-export default worker;
+export const __test={md5,loadBackends,isFlacSong,normalizeSubsonicSong,jamendoClientId,jamendoAllowed,isFlacUrl,normalizeJamendoTrack,resolveJamendo};
