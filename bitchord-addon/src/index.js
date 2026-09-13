@@ -15,7 +15,7 @@ function md5(input){
   const bytes=new TextEncoder().encode(input),n=(((bytes.length+8)>>6)+1)*16,w=new Array(n).fill(0);for(let j=0;j<bytes.length;j++)w[j>>2]|=bytes[j]<<((j%4)*8);w[bytes.length>>2]|=0x80<<((bytes.length%4)*8);w[n-2]=bytes.length*8;
   let a=0x67452301,b=0xefcdab89,c=0x98badcfe,d=0x10325476;
   for(let k=0;k<n;k+=16){const A=a,B=b,C=c,D=d;
-    a=step(F,a,b,c,d,w[k],7,0xd76aa478);d=step(F,d,a,b,c,w[k+1],12,0xe8c7b756);c=step(F,c,d,a,b,w[k+2],17,0x242070db);b=step(F,b,c,d,a,w[k+3],22,0xc1bdcee);
+    a=step(F,a,b,c,d,w[k],7,0xd76aa478);d=step(F,d,a,b,c,w[k+1],12,0xe8c7b756);c=step(F,c,d,a,b,w[k+2],17,0x242070db);b=step(F,b,c,d,a,w[k+3],22,0xc1bdceee);
     a=step(F,a,b,c,d,w[k+4],7,0xf57c0faf);d=step(F,d,a,b,c,w[k+5],12,0x4787c62a);c=step(F,c,d,a,b,w[k+6],17,0xa8304613);b=step(F,b,c,d,a,w[k+7],22,0xfd469501);
     a=step(F,a,b,c,d,w[k+8],7,0x698098d8);d=step(F,d,a,b,c,w[k+9],12,0x8b44f7af);c=step(F,c,d,a,b,w[k+10],17,0xffff5bb1);b=step(F,b,c,d,a,w[k+11],22,0x895cd7be);
     a=step(F,a,b,c,d,w[k+12],7,0x6b901122);d=step(F,d,a,b,c,w[k+13],12,0xfd987193);c=step(F,c,d,a,b,w[k+14],17,0xa679438e);b=step(F,b,c,d,a,w[k+15],22,0x49b40821);
