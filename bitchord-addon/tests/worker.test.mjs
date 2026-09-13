@@ -14,50 +14,43 @@ function b64(value) {
 }
 
 test("decodes a TIDAL BTS manifest to a direct FLAC URL", () => {
-  const url = __test.flacUrlFromManifest(b64(JSON.stringify(FLAC_MANIFEST)));
-  assert.equal(url, FLAC_MANIFEST.urls[0]);
+  assert.equal(__test.flacUrlFromManifest(b64(JSON.stringify(FLAC_MANIFEST))), FLAC_MANIFEST.urls[0]);
 });
 
 test("accepts raw FLAC manifest JSON", () => {
-  const url = __test.flacUrlFromManifest(JSON.stringify(FLAC_MANIFEST));
-  assert.equal(url, FLAC_MANIFEST.urls[0]);
+  assert.equal(__test.flacUrlFromManifest(JSON.stringify(FLAC_MANIFEST)), FLAC_MANIFEST.urls[0]);
 });
 
 test("rejects DASH MPD manifests", () => {
-  const url = __test.flacUrlFromManifest(
-    b64("<?xml version=\"1.0\"?><MPD><Period /></MPD>")
-  );
-  assert.equal(url, null);
+  assert.equal(__test.flacUrlFromManifest(b64("<?xml version=\"1.0\"?><MPD><Period /></MPD>")), null);
 });
 
 test("rejects non-FLAC JSON payloads", () => {
-  const url = __test.flacUrlFromManifest(
-    b64(JSON.stringify({
-      mimeType: "audio/aac",
-      codecs: "mp4a.40.2",
-      urls: ["https://example.invalid/track.m4a"]
-    }))
-  );
-  assert.equal(url, null);
+  assert.equal(__test.flacUrlFromManifest(b64(JSON.stringify({
+    mimeType: "audio/aac",
+    codecs: "mp4a.40.2",
+    urls: ["https://example.invalid/track.m4a"]
+  }))), null);
 });
 
-test("manifest endpoint exposes version 1.1.0", async () => {
+test("manifest endpoint exposes version 1.2.0", async () => {
   const response = await worker.fetch(new Request("https://example.test/"));
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.id, "com.kai.jr.bitchord.lossless");
-  assert.equal(body.version, "1.1.0");
+  assert.equal(body.version, "1.2.0");
   assert.deepEqual(body.resources, ["search", "stream"]);
 });
 
-test("health endpoint reports direct FLAC mode", async () => {
+test("health endpoint reports both lossless resolver paths", async () => {
   const response = await worker.fetch(new Request("https://example.test/health"));
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
-  assert.equal(body.version, "1.1.0");
+  assert.equal(body.version, "1.2.0");
   assert.equal(body.mode, "direct-flac");
   assert.equal(body.quality, "LOSSLESS");
+  assert.deepEqual(body.resolver, ["track", "trackManifests"]);
   assert.ok(body.providers.length >= 10);
 });
 
