@@ -3,17 +3,124 @@ import assert from "node:assert/strict";
 import worker, { __test } from "../src/index.js";
 
 const ORIGINAL_FETCH = globalThis.fetch;
-function jsonResponse(data,status=200,headers={}){return new Response(JSON.stringify(data),{status,headers:{"content-type":"application/json",...headers}})}
-function jamendoTrack(overrides={}){return{id:10,name:"Free FLAC Test",duration:183,artist_name:"Test Artist",album_name:"Test Album",album_image:"https://cdn.example.test/cover.jpg",audio:"https://cdn.example.test/tracks/10.flac?token=test",audiodownload_allowed:true,license_ccurl:"https://creativecommons.org/licenses/by/4.0/",...overrides}}
-test.afterEach(()=>{globalThis.fetch=ORIGINAL_FETCH});
+function jsonResponse(data, status = 200, headers = {}) {
+  return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", ...headers } });
+}
+function jamendoTrack(overrides = {}) {
+  return {
+    id: 10,
+    name: "Free FLAC Test",
+    duration: 183,
+    artist_name: "Test Artist",
+    album_name: "Test Album",
+    album_image: "https://cdn.example.test/cover.jpg",
+    audio: "https://cdn.example.test/tracks/10.flac?token=test",
+    audiodownload_allowed: true,
+    license_ccurl: "https://creativecommons.org/licenses/by/4.0/",
+    ...overrides
+  };
+}
+test.afterEach(() => { globalThis.fetch = ORIGINAL_FETCH; });
 
-test("MD5 RFC vectors remain correct",()=>{assert.equal(__test.md5(""),"d41d8cd98f00b204e9800998ecf8427e");assert.equal(__test.md5("abc"),"900150983cd24fb0d6963f7d28e17f72")});
-test("Jamendo client ID is read from Worker env",()=>{assert.equal(__test.jamendoClientId({JAMENDO_CLIENT_ID:"abc123"}),"abc123");assert.equal(__test.jamendoClientId({}),null)});
-test("Jamendo normalization creates provider-prefixed lossless track",()=>{const r=__test.normalizeJamendoTrack(jamendoTrack());assert.equal(r.id,"jamendo:10");assert.equal(r.format,"flac");assert.equal(r.audioQuality,"LOSSLESS");assert.equal(r.provider,"jamendo");assert.equal(r.streamable,true)});
-test("manifest exposes version 1.2.2 and Jamendo status",async()=>{const r=await worker.fetch(new Request("https://example.test/"),{JAMENDO_CLIENT_ID:"test-client"});const b=await r.json();assert.equal(r.status,200);assert.equal(b.id,"com.kai.jr.bitchord.lossless");assert.equal(b.version,"1.2.2");assert.deepEqual(b.resources,["search","stream"]);assert.equal(b.providers.jamendo.configured,true)});
-test("health does not expose Jamendo client ID",async()=>{const r=await worker.fetch(new Request("https://example.test/health"),{JAMENDO_CLIENT_ID:"super-secret-client-id"});const t=await r.text();assert.equal(r.status,200);assert.ok(!t.includes("super-secret-client-id"));assert.ok(t.includes('"jamendo":{"configured":true}'))});
-test("Jamendo search returns only permitted FLAC tracks",async()=>{const requested=[];globalThis.fetch=async(input)=>{requested.push(String(input));return jsonResponse({headers:{status:"success"},results:[jamendoTrack({id:10}),jamendoTrack({id:11,audiodownload_allowed:false}),jamendoTrack({id:12,audio:"https://cdn.example.test/tracks/12.mp3"})]})};const r=await worker.fetch(new Request("https://example.test/search?q=ambient"),{JAMENDO_CLIENT_ID:"test-client"});const b=await r.json();assert.equal(r.status,200);assert.equal(b.tracks.length,1);assert.equal(b.tracks[0].id,"jamendo:10");assert.ok(requested[0].includes("audioformat=flac"));assert.ok(requested[0].includes("audiodlformat=flac"))});
-test("Jamendo stream resolves direct FLAC without unnecessary HEAD",async()=>{const requested=[];globalThis.fetch=async(input,init={})=>{const u=String(input);requested.push({u,init});if(u.includes("/tracks/?"))return jsonResponse({headers:{status:"success"},results:[jamendoTrack({bit_depth:16,sampling_rate:44100})]});throw new Error(`Unexpected request: ${u}`)};const r=await worker.fetch(new Request("https://example.test/stream/jamendo:10"),{JAMENDO_CLIENT_ID:"test-client"});const b=await r.json();assert.equal(r.status,200);assert.equal(b.provider,"jamendo");assert.equal(b.codec,"flac");assert.equal(b.container,"flac");assert.equal(b.format,"flac");assert.equal(b.audioQuality,"LOSSLESS");assert.equal(b.sampleRate,44100);assert.equal(b.bitDepth,16);assert.equal(requested.filter(x=>x.init.method==="HEAD").length,0)});
-test("Jamendo stream rejects disallowed track",async()=>{globalThis.fetch=async()=>jsonResponse({headers:{status:"success"},results:[jamendoTrack({audiodownload_allowed:false})]});const r=await worker.fetch(new Request("https://example.test/stream/jamendo:10"),{JAMENDO_CLIENT_ID:"test-client"});assert.equal(r.status,502)});
-test("Jamendo stream validates opaque final URL via HEAD",async()=>{const requested=[];globalThis.fetch=async(input,init={})=>{const u=String(input);requested.push({u,init});if(u.includes("/tracks/?"))return jsonResponse({headers:{status:"success"},results:[jamendoTrack({audio:"https://cdn.example.test/signed-token"})]});if(init.method==="HEAD")return new Response(null,{status:200,headers:{"content-type":"audio/flac"}});throw new Error(`Unexpected request: ${u}`)};const r=await worker.fetch(new Request("https://example.test/stream/jamendo:10"),{JAMENDO_CLIENT_ID:"test-client"});const b=await r.json();assert.equal(r.status,200);assert.equal(b.codec,"flac");assert.equal(requested.filter(x=>x.init.method==="HEAD").length,1)});
-test("method and CORS contracts remain intact",async()=>{const p=await worker.fetch(new Request("https://example.test/",{method:"POST"}));assert.equal(p.status,405);const o=await worker.fetch(new Request("https://example.test/",{method:"OPTIONS"}));assert.equal(o.status,204);assert.equal(o.headers.get("Access-Control-Allow-Origin"),"*")});
+test("MD5 RFC vectors remain correct", () => {
+  assert.equal(__test.md5(""), "d41d8cd98f00b204e9800998ecf8427e");
+  assert.equal(__test.md5("abc"), "900150983cd24fb0d6963f7d28e17f72");
+});
+
+test("Jamendo client ID is read from Worker env", () => {
+  assert.equal(__test.jamendoClientId({ JAMENDO_CLIENT_ID: "abc123" }), "abc123");
+  assert.equal(__test.jamendoClientId({}), null);
+});
+
+test("Jamendo normalization creates provider-prefixed lossless track", () => {
+  const r = __test.normalizeJamendoTrack(jamendoTrack());
+  assert.equal(r.id, "jamendo:10");
+  assert.equal(r.format, "flac");
+  assert.equal(r.audioQuality, "LOSSLESS");
+  assert.equal(r.provider, "jamendo");
+  assert.equal(r.streamable, true);
+});
+
+test("Archive FLAC and license checks are conservative", () => {
+  assert.equal(__test.isFlacArchiveFile({ name: "track.flac", format: "Flac", private: false }), true);
+  assert.equal(__test.isFlacArchiveFile({ name: "track.mp3", format: "MP3", private: false }), false);
+  assert.equal(__test.archiveLicensed({ metadata: { licenseurl: "https://creativecommons.org/licenses/by/4.0/" } }), true);
+  assert.equal(__test.archiveLicensed({ metadata: { rights: "all rights reserved" } }), false);
+});
+
+test("manifest exposes version 4.0.0 and provider status", async () => {
+  const r = await worker.fetch(new Request("https://example.test/"), { JAMENDO_CLIENT_ID: "test-client" });
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.equal(b.id, "com.kai.jr.bitchord.lossless");
+  assert.equal(b.version, "4.0.0");
+  assert.deepEqual(b.resources, ["search", "stream"]);
+  assert.equal(b.providers.jamendo.configured, true);
+  assert.equal(b.providers.archive.configured, true);
+});
+
+test("health does not expose Jamendo client ID", async () => {
+  const r = await worker.fetch(new Request("https://example.test/health"), { JAMENDO_CLIENT_ID: "super-secret-client-id" });
+  const t = await r.text();
+  assert.equal(r.status, 200);
+  assert.ok(!t.includes("super-secret-client-id"));
+  assert.ok(t.includes('"jamendo":{"configured":true}'));
+});
+
+test("Jamendo search requests FLAC and filters denied/non-FLAC tracks", async () => {
+  const requested = [];
+  globalThis.fetch = async (input) => {
+    requested.push(String(input));
+    return jsonResponse({
+      headers: { status: "success" },
+      results: [
+        jamendoTrack({ id: 10 }),
+        jamendoTrack({ id: 11, audiodownload_allowed: false }),
+        jamendoTrack({ id: 12, audio: "https://cdn.example.test/tracks/12.mp3" })
+      ]
+    });
+  };
+  const r = await worker.fetch(new Request("https://example.test/search?q=ambient"), { JAMENDO_CLIENT_ID: "test-client" });
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.ok(b.tracks.some(t => t.id === "jamendo:10"));
+  assert.ok(!b.tracks.some(t => t.id === "jamendo:11"));
+  assert.ok(!b.tracks.some(t => t.id === "jamendo:12"));
+  assert.ok(requested.some(u => u.includes("audioformat=flac")));
+  assert.ok(requested.some(u => u.includes("audiodlformat=flac")));
+});
+
+test("Jamendo stream returns direct lossless metadata", async () => {
+  const requested = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const u = String(input);
+    requested.push({ u, init });
+    if (u.includes("/tracks/?")) return jsonResponse({ headers: { status: "success" }, results: [jamendoTrack({ bit_depth: 16, sampling_rate: 44100 })] });
+    throw new Error(`Unexpected request: ${u}`);
+  };
+  const r = await worker.fetch(new Request("https://example.test/stream/jamendo:10"), { JAMENDO_CLIENT_ID: "test-client" });
+  const b = await r.json();
+  assert.equal(r.status, 200);
+  assert.equal(b.provider, "jamendo");
+  assert.equal(b.codec, "flac");
+  assert.equal(b.container, "flac");
+  assert.equal(b.format, "flac");
+  assert.equal(b.audioQuality, "LOSSLESS");
+  assert.equal(b.sampleRate, 44100);
+  assert.equal(b.bitDepth, 16);
+  assert.equal(requested.filter(x => x.init.method === "HEAD").length, 0);
+});
+
+test("Jamendo stream rejects disallowed track", async () => {
+  globalThis.fetch = async () => jsonResponse({ headers: { status: "success" }, results: [jamendoTrack({ audiodownload_allowed: false })] });
+  const r = await worker.fetch(new Request("https://example.test/stream/jamendo:10"), { JAMENDO_CLIENT_ID: "test-client" });
+  assert.equal(r.status, 502);
+});
+
+test("method and CORS contracts remain intact", async () => {
+  const p = await worker.fetch(new Request("https://example.test/", { method: "POST" }));
+  assert.equal(p.status, 405);
+  const o = await worker.fetch(new Request("https://example.test/", { method: "OPTIONS" }));
+  assert.equal(o.status, 204);
+  assert.equal(o.headers.get("Access-Control-Allow-Origin"), "*");
+});
